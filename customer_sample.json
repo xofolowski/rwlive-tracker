@@ -1,0 +1,12 @@
+[
+    {
+        "name": "Customer A",
+        "email": "customerA@example.com",
+        "recipient_list": ["recipientA@example.com"]
+    },
+    {
+        "name": "Customer B",
+        "email": "customerB@example.com",
+        "recipient_list": ["recipientB@example.com", "recipientC@example.com"]
+    }
+]

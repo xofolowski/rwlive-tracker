@@ -12,7 +12,7 @@ import smtplib
 from email.mime.text import MIMEText
 from urllib.parse import urlparse
 
-DATABASE = 'ransomware_data.db'
+DATABASE = '/rwlive-tracker/data/ransomware_data.db'
 
 # Function to initialize the database with additional tables
 def init_db():
@@ -186,7 +186,7 @@ def process_matches(notify=True):
 
 # Function to send email summary to admin
 def send_summary_to_admin(matches_summary):
-    with open('config.json') as f:
+    with open(CONFIGFILE) as f:
         config = json.load(f)
 
     admin_email = config['admin_email']
@@ -222,7 +222,7 @@ def send_email_notification(recipient, matches):
 
 # Function to send email
 def send_email(to, subject, body):
-    with open('config.json') as f:
+    with open(CONFIGFILE) as f:
         config = json.load(f)
 
     msg = MIMEText(body)
@@ -310,9 +310,11 @@ def list_historical_matches():
 
 # Main function to handle command-line arguments and execute tasks
 def main(polling_interval, initialize, start_year, import_customers_file, import_keywords_file, customer_id, list_customers, list_matches, match_history):
-    # Initialize the database if requested
+    # we always initialize the DB to ensure it is there
+    init_db()
+
+    # Initially populate the database if requested
     if initialize:
-        init_db()
         fetch_initial_data(start_year)
         sys.exit(0)
     
@@ -354,6 +356,8 @@ def main(polling_interval, initialize, start_year, import_customers_file, import
 # Command-line interface
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fetch and store ransomware data.")
+    parser.add_argument('-c', '--config', type=str, default="/rwlive-tracker/conf/config.json",
+                        help="Path to config file (default: /rwlive-tracker/conf/config.json).")
     parser.add_argument('-p', '--polling_interval', type=int, default=3600,
                         help="Polling interval in seconds (default: 3600).")
     parser.add_argument('-i', '--initialize', action='store_true',
@@ -374,4 +378,5 @@ if __name__ == "__main__":
                         help="List all historical matches without sending out alerts.")
     args = parser.parse_args()
 
+    CONFIGFILE=args.config
     main(args.polling_interval, args.initialize, args.start_year, args.import_customers, args.import_keywords, args.customer_id, args.list_customers, args.list_matches, args.match_history)

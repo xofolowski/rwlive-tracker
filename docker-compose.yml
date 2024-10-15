@@ -1,0 +1,10 @@
+services:
+  rwlive-tracker:
+    build: ./data/Dockerfiles/rwlive-tracker/
+    container_name: rwlive-tracker
+    volumes:
+      - ./data/conf/rwlive-tracker:/rwlive-tracker/conf
+      - ./data/data/rwlive-tracker:/rwlive-tracker/data
+    restart: always
+    command: ["-p", "3600"]
+  

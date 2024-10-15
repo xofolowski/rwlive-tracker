@@ -1,0 +1,10 @@
+certifi==2024.8.30
+charset-normalizer==3.4.0
+fuzzywuzzy==0.18.0
+idna==3.10
+Levenshtein==0.26.0
+python-Levenshtein==0.26.0
+RapidFuzz==3.10.0
+requests==2.32.3
+schedule==1.2.2
+urllib3==2.2.3

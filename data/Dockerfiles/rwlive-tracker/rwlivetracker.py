@@ -137,6 +137,17 @@ def poll_recent_victims():
     # Perform fuzzy matching and send emails
     process_matches(notify=True,data=recent_data)
 
+# database management
+def delete_customer(cid):
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM customers where id = ?',(CUSTOMERID,))
+    cursor.execute('DELETE FROM keywords where customer_id = ?',(CUSTOMERID,))
+    cursor.execute('DELETE FROM historical_matches where customer_id = ?',(CUSTOMERID,))
+    conn.commit()
+    conn.close()
+        
+
 # Function to perform fuzzy matching and send email notifications
 def process_matches(**kwargs):
     conn = sqlite3.connect(DATABASE)
@@ -157,7 +168,7 @@ def process_matches(**kwargs):
         victims = cursor.fetchall()
   
     if CUSTOMERID:
-        cursor.execute('SELECT * FROM customers where customer_id = ?', (CUSTOMERID))
+        cursor.execute('SELECT * FROM customers where id = ?', (CUSTOMERID,))
     else: 
         # Fetch all customers
         cursor.execute('SELECT * FROM customers')
@@ -334,7 +345,7 @@ def list_historical_matches():
     conn.close()
 
 # Main function to handle command-line arguments and execute tasks
-def main(polling_interval, initialize, start_year, import_customers_file, import_keywords_file, list_customers, list_matches):
+def main(polling_interval, initialize, start_year, import_customers_file, import_keywords_file, list_customers, list_matches, delete_customer_id):
     # we always initialize the DB to ensure it is there
     init_db()
 
@@ -369,6 +380,11 @@ def main(polling_interval, initialize, start_year, import_customers_file, import
         list_historical_matches()
         sys.exit(0)
     
+        # List historical matches if requested
+    if delete_customer_id:
+        delete_customer(delete_customer_id)
+        sys.exit(0)
+
     # Schedule the periodic polling
     schedule.every(polling_interval).seconds.do(poll_recent_victims)
 
@@ -401,10 +417,13 @@ if __name__ == "__main__":
                         help="Perform retro matching of all known keywords without sending out alerts.")
     parser.add_argument('--list_matches', action='store_true',
                         help="List all historical matches without sending out alerts.")
+    parser.add_argument('--delete_customer', type=int,
+                        help="Delete customer and related keywords and retromatches.")
+    
     args = parser.parse_args()
 
     CONFIGFILE=args.config
     CUSTOMERID=args.customer_id
     RETROMATCH=args.retromatch
 
-    main(args.polling_interval, args.initialize, args.start_year, args.import_customers, args.import_keywords, args.list_customers, args.list_matches)
+    main(args.polling_interval, args.initialize, args.start_year, args.import_customers, args.import_keywords, args.list_customers, args.list_matches, args.delete_customer)

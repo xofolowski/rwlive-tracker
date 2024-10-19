@@ -132,6 +132,7 @@ def poll_recent_victims():
     recent_victims_url = 'https://api.ransomware.live/recentvictims'
     print("Polling /recentvictims")
     recent_data = fetch_data(recent_victims_url)
+    print(f"Retrieved {len(recent_data)} new datasets.")
     insert_data(recent_data)
     
     # Perform fuzzy matching and send emails
@@ -141,9 +142,9 @@ def poll_recent_victims():
 def delete_customer(cid):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM customers where id = ?',(CUSTOMERID,))
-    cursor.execute('DELETE FROM keywords where customer_id = ?',(CUSTOMERID,))
-    cursor.execute('DELETE FROM historical_matches where customer_id = ?',(CUSTOMERID,))
+    cursor.execute('DELETE FROM customers where id = ?',(cid,))
+    cursor.execute('DELETE FROM keywords where customer_id = ?',(cid,))
+    cursor.execute('DELETE FROM historical_matches where customer_id = ?',(cid,))
     conn.commit()
     conn.close()
         

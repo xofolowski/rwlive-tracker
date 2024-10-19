@@ -68,31 +68,52 @@ def extract_domain(url):
     else:
         return parsed_url.path.split("/")[0]
     
+# Function to fetch data from the API
+def fetch_data(url):
+    response = requests.get(url)
+    response.raise_for_status()  # Check for HTTP errors
+    data = []
+    for item in response.json():
+        # Process website to extract only the domain
+        domain = extract_domain(item.get('website', ''))
+        infostealer_data = json.dumps(item.get('infostealer', {}))
+        data.append({
+            "published": item.get('published'),
+            "activity": item.get('activity'),
+            "country": item.get('country'),
+            "description": item.get('description'),
+            "discovered": item.get('discovered'),
+            "group_name": item.get('group_name'),
+            "infostealer_data": infostealer_data,
+            "post_title": item.get('post_title'),
+            "post_url": item.get('post_url'),
+            "screenshot": item.get('screenshot'),
+            "domain": domain  # Use extracted domain
+        })
+    return data
+
 # Function to insert data into the database
 def insert_data(data):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     for item in data:
-        # Process website to extract only the domain
-        domain = extract_domain(item.get('website', ''))
-        infostealer_data = json.dumps(item.get('infostealer', {}))
         cursor.execute('''
             INSERT OR IGNORE INTO victims (
                 published, activity, country, description, discovered,
                 group_name, infostealer, post_title, post_url, screenshot, domain
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            item.get('published'),
-            item.get('activity'),
-            item.get('country'),
-            item.get('description'),
-            item.get('discovered'),
-            item.get('group_name'),
-            infostealer_data,
-            item.get('post_title'),
-            item.get('post_url'),
-            item.get('screenshot'),
-            domain  # Use extracted domain
+            item['published'],
+            item['activity'],
+            item['country'],
+            item['description'],
+            item['discovered'],
+            item['group_name'],
+            item['infostealer_data'],
+            item['post_title'],
+            item['post_url'],
+            item['screenshot'],
+            item['domain']
         ))
     conn.commit()
     conn.close()
@@ -111,22 +132,35 @@ def poll_recent_victims():
     recent_victims_url = 'https://api.ransomware.live/recentvictims'
     print("Polling /recentvictims")
     recent_data = fetch_data(recent_victims_url)
-    print(recent_data[0])
     insert_data(recent_data)
     
     # Perform fuzzy matching and send emails
     process_matches()
 
 # Function to perform fuzzy matching and send email notifications
-def process_matches(notify=True):
+def process_matches(**kwargs):
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
 
-    # Fetch all keywords and customers
-    cursor.execute('SELECT * FROM keywords')
-    keywords = cursor.fetchall()
+    if "notify" in kwargs:
+        notify = kwargs['notify']
+    else:
+        notify = True
 
-    cursor.execute('SELECT * FROM customers')
+    if "data" in kwargs:
+        victims = []
+        for item in kwargs['data']:
+            victims.append((item['published'], item['post_title'], item['domain'], item['group_name'], item['post_url'])) 
+    else:
+        # Fetch all victims data
+        cursor.execute('SELECT published, post_title, domain, group_name, post_url FROM victims')
+        victims = cursor.fetchall()
+  
+    if CUSTOMERID:
+        cursor.execute('SELECT * FROM customers where customer_id = ?', (CUSTOMERID))
+    else: 
+        # Fetch all customers
+        cursor.execute('SELECT * FROM customers')
     customers = cursor.fetchall()
 
     matches_summary = {}
@@ -138,28 +172,25 @@ def process_matches(notify=True):
         # Fetch customer-specific keywords
         cursor.execute('SELECT keyword FROM keywords WHERE customer_id = ?', (customer_id,))
         customer_keywords = [row[0] for row in cursor.fetchall()]
-        
-        # Fetch all victims data
-        cursor.execute('SELECT published, post_title, domain, group_name, post_url FROM victims')
-        victims = cursor.fetchall()
-        
+      
         # Perform fuzzy matching
         for keyword in customer_keywords:
             for victim in victims:
-                published, post_title, domain, group_name, post_url = victim
+                published, post_title, domain, group_name, post_url = victim              
+                match_count = 1
+                if RETROMATCH:
+                    # Check if this match has already been recorded
+                    cursor.execute('''
+                        SELECT COUNT(*) FROM historical_matches
+                        WHERE published = ? AND keyword = ? AND customer_id = ?
+                    ''', (published, keyword, customer_id))
+                    match_count = cursor.fetchone()[0]
                 
-                # Check if this match has been recorded
-                cursor.execute('''
-                    SELECT COUNT(*) FROM historical_matches
-                    WHERE published = ? AND keyword = ? AND customer_id = ?
-                ''', (published, keyword, customer_id))
-                match_count = cursor.fetchone()[0]
-                
-                if match_count == 0:
+                if not RETROMATCH or match_count == 0:
                     if ((len(keyword) <= len(post_title) and 
                          fuzz.partial_ratio(keyword.lower(), post_title.lower()) == 100) or
                         fuzz.ratio(keyword.lower(), domain.lower()) == 100):
-                        print(f"Match found: {post_title}")
+                        print(f"Match found with keyword {keyword.lower()}: {post_title}")
                         customer_matches.append({
                             'published': published,
                             'post_title': post_title,
@@ -235,12 +266,6 @@ def send_email(to, subject, body):
         server.login(config['smtp_user'], config['smtp_password'])
         server.send_message(msg)
 
-# Function to fetch data from the API
-def fetch_data(url):
-    response = requests.get(url)
-    response.raise_for_status()  # Check for HTTP errors
-    return response.json()
-
 # Function to import customer data from JSON file
 def import_customers(file_path):
     with open(file_path, 'r') as f:
@@ -257,7 +282,7 @@ def import_customers(file_path):
     conn.close()
 
 # Function to import keywords for an existing customer from JSON file
-def import_keywords(file_path, customer_id):
+def import_keywords(file_path):
     with open(file_path, 'r') as f:
         keywords = json.load(f)
     
@@ -267,7 +292,7 @@ def import_keywords(file_path, customer_id):
         cursor.execute('''
             INSERT OR IGNORE INTO keywords (customer_id, keyword)
             VALUES (?, ?)
-        ''', (customer_id, keyword))
+        ''', (CUSTOMERID, keyword))
     conn.commit()
     conn.close()
 
@@ -309,7 +334,7 @@ def list_historical_matches():
     conn.close()
 
 # Main function to handle command-line arguments and execute tasks
-def main(polling_interval, initialize, start_year, import_customers_file, import_keywords_file, customer_id, list_customers, list_matches, match_history):
+def main(polling_interval, initialize, start_year, import_customers_file, import_keywords_file, list_customers, list_matches):
     # we always initialize the DB to ensure it is there
     init_db()
 
@@ -324,8 +349,8 @@ def main(polling_interval, initialize, start_year, import_customers_file, import
         sys.exit(0)
     
     # Import keywords if file and customer ID provided
-    if import_keywords_file and customer_id:
-        import_keywords(import_keywords_file, customer_id)
+    if import_keywords_file and CUSTOMERID:
+        import_keywords(import_keywords_file)
         sys.exit(0)
     
     # List customers and keywords if requested
@@ -334,8 +359,8 @@ def main(polling_interval, initialize, start_year, import_customers_file, import
         sys.exit(0)
     
     # List historical matches if requested
-    if match_history:
-        process_matches(False)
+    if RETROMATCH:
+        process_matches(notify=False)
         list_historical_matches()
         sys.exit(0)
     
@@ -369,14 +394,17 @@ if __name__ == "__main__":
     parser.add_argument('--import_keywords', type=str,
                         help="Path to JSON file for importing keywords.")
     parser.add_argument('--customer_id', type=int,
-                        help="Customer ID for importing keywords.")
+                        help="Customer ID for importing keywords or performing retromatching.")
     parser.add_argument('--list_customers', action='store_true',
                         help="List all customers and their configured keywords.")
-    parser.add_argument('--match_history', action='store_true',
-                        help="Perform historical matching of all known keywords without sending out alerts.")
+    parser.add_argument('--retromatch', action='store_true',
+                        help="Perform retro matching of all known keywords without sending out alerts.")
     parser.add_argument('--list_matches', action='store_true',
                         help="List all historical matches without sending out alerts.")
     args = parser.parse_args()
 
     CONFIGFILE=args.config
-    main(args.polling_interval, args.initialize, args.start_year, args.import_customers, args.import_keywords, args.customer_id, args.list_customers, args.list_matches, args.match_history)
+    CUSTOMERID=args.customer_id
+    RETROMATCH=args.retromatch
+
+    main(args.polling_interval, args.initialize, args.start_year, args.import_customers, args.import_keywords, args.list_customers, args.list_matches)

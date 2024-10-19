@@ -135,7 +135,7 @@ def poll_recent_victims():
     insert_data(recent_data)
     
     # Perform fuzzy matching and send emails
-    process_matches()
+    process_matches(notify=True,data=recent_data)
 
 # Function to perform fuzzy matching and send email notifications
 def process_matches(**kwargs):

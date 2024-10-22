@@ -189,16 +189,14 @@ def process_matches(**kwargs):
         for keyword in customer_keywords:
             for victim in victims:
                 published, post_title, domain, group_name, post_url = victim              
-                match_count = 1
-                if RETROMATCH:
-                    # Check if this match has already been recorded
-                    cursor.execute('''
-                        SELECT COUNT(*) FROM historical_matches
-                        WHERE published = ? AND keyword = ? AND customer_id = ?
-                    ''', (published, keyword, customer_id))
-                    match_count = cursor.fetchone()[0]
+                # Check if this match has already been recorded
+                cursor.execute('''
+                    SELECT COUNT(*) FROM historical_matches
+                    WHERE published = ? AND keyword = ? AND customer_id = ?
+                ''', (published, keyword, customer_id))
+                match_count = cursor.fetchone()[0]
                 
-                if not RETROMATCH or match_count == 0:
+                if match_count == 0:
                     if ((len(keyword) <= len(post_title) and 
                          fuzz.partial_ratio(keyword.lower(), post_title.lower()) == 100) or
                         fuzz.ratio(keyword.lower(), domain.lower()) == 100):
@@ -332,16 +330,23 @@ def list_historical_matches():
     conn = sqlite3.connect(DATABASE)
     cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT h.published, h.keyword, c.name
-        FROM historical_matches h
-        JOIN customers c ON h.customer_id = c.id
-    ''')
+    if CUSTOMERID:
+        cursor.execute('''
+            SELECT h.published, h.keyword, c.name, c.id
+            FROM historical_matches h
+            JOIN customers c ON h.customer_id = c.id where c.id = ?
+        ''', (CUSTOMERID,))
+    else:
+        cursor.execute('''
+            SELECT h.published, h.keyword, c.name, c.id
+            FROM historical_matches h
+            JOIN customers c ON h.customer_id = c.id
+        ''')
     matches = cursor.fetchall()
     
     for match in matches:
-        published, keyword, customer_name = match
-        print(f"Published: {published}, Keyword: {keyword}, Customer: {customer_name}")
+        published, keyword, customer_name, customer_id = match
+        print(f"Published: {published}, Keyword: {keyword}, Customer: {customer_id}/{customer_name}")
     
     conn.close()
 
@@ -386,7 +391,9 @@ def main(polling_interval, initialize, start_year, import_customers_file, import
         delete_customer(delete_customer_id)
         sys.exit(0)
 
-    # Schedule the periodic polling
+    # immediately poll victims
+    poll_recent_victims()
+    # ... and then schedule the periodic polling
     schedule.every(polling_interval).seconds.do(poll_recent_victims)
 
     # Run the scheduler
